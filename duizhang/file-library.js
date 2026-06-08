@@ -30,17 +30,47 @@ const TABLE_BORDER_STYLE = {
   style: "thin",
   color: { rgb: "FFB7C4D6" },
 };
+const THICK_HEADER_BORDER_STYLE = {
+  style: "medium",
+  color: { rgb: "FF7FA6C8" },
+};
 const HEADER_FILL = {
   patternType: "solid",
   fgColor: { rgb: "FFD9EAF7" },
+};
+const OUTPUT_HEADER_FILL = {
+  patternType: "solid",
+  fgColor: { rgb: "FFBFD7EE" },
 };
 const HEADER_FONT = {
   bold: true,
   color: { rgb: "FF1F2933" },
 };
-const CENTER_ALIGNMENT = {
+const HEADER_ALIGNMENT = {
   horizontal: "center",
   vertical: "center",
+  wrapText: true,
+};
+const BODY_ALIGNMENT = {
+  vertical: "center",
+};
+const OUTPUT_ALIGNMENT = {
+  horizontal: "center",
+  vertical: "center",
+  wrapText: true,
+};
+const NOTE_ALIGNMENT = {
+  horizontal: "left",
+  vertical: "top",
+  wrapText: true,
+};
+const BODY_FILL = {
+  patternType: "solid",
+  fgColor: { rgb: "FFFFFFFF" },
+};
+const ZEBRA_FILL = {
+  patternType: "solid",
+  fgColor: { rgb: "FFF8FBFF" },
 };
 
 const els = {
@@ -1032,25 +1062,23 @@ function applyGeneratedTableStyle(sheet, headerRow, range) {
     }),
   };
 
+  const rows = sheet["!rows"] || [];
+  rows[headerRow] = { ...(rows[headerRow] || {}), hpt: 26 };
+
   for (let rowIndex = styledRange.s.r; rowIndex <= styledRange.e.r; rowIndex += 1) {
+    const isHeader = rowIndex === headerRow;
+    const shouldStyleRow = isHeader || rowHasAnyValue(sheet, rowIndex, styledRange.e.c);
+    if (!shouldStyleRow) continue;
+    if (!isHeader) rows[rowIndex] = { ...(rows[rowIndex] || {}), hpt: 22 };
+
     for (let columnIndex = styledRange.s.c; columnIndex <= styledRange.e.c; columnIndex += 1) {
       const address = window.XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
       const cell = sheet[address] || { t: "s", v: "" };
-      cell.s = {
-        ...(cell.s || {}),
-        border: getCellBorder(),
-        alignment: { ...(cell.s?.alignment || {}), ...CENTER_ALIGNMENT },
-      };
-      if (rowIndex === headerRow) {
-        cell.s = {
-          ...cell.s,
-          fill: { ...(cell.s.fill || {}), ...HEADER_FILL },
-          font: { ...(cell.s.font || {}), ...HEADER_FONT },
-        };
-      }
+      cell.s = getGeneratedCellStyle(cell, rowIndex, columnIndex, headerRow);
       sheet[address] = cell;
     }
   }
+  sheet["!rows"] = rows;
 }
 
 function getCellBorder() {
@@ -1059,6 +1087,140 @@ function getCellBorder() {
     bottom: TABLE_BORDER_STYLE,
     left: TABLE_BORDER_STYLE,
     right: TABLE_BORDER_STYLE,
+  };
+}
+
+function getHeaderCellBorder() {
+  return {
+    top: THICK_HEADER_BORDER_STYLE,
+    bottom: THICK_HEADER_BORDER_STYLE,
+    left: TABLE_BORDER_STYLE,
+    right: TABLE_BORDER_STYLE,
+  };
+}
+
+function getGeneratedCellStyle(cell, rowIndex, columnIndex, headerRow) {
+  const isHeader = rowIndex === headerRow;
+  const currentStyle = cell.s || {};
+  const value = getCellText(cell);
+  const style = {
+    ...currentStyle,
+    border: isHeader ? getHeaderCellBorder() : getCellBorder(),
+    alignment: getGeneratedCellAlignment(columnIndex, isHeader),
+    fill: isHeader ? getHeaderFill(columnIndex) : getBodyFill(rowIndex),
+  };
+
+  if (isHeader) {
+    style.font = { ...(currentStyle.font || {}), ...HEADER_FONT };
+    return style;
+  }
+
+  const resultStyle = getResultCellStyle(columnIndex, value);
+  if (resultStyle.fill) style.fill = resultStyle.fill;
+  if (resultStyle.font) style.font = { ...(currentStyle.font || {}), ...resultStyle.font };
+  return style;
+}
+
+function getGeneratedCellAlignment(columnIndex, isHeader) {
+  if (isHeader) return HEADER_ALIGNMENT;
+  if (columnIndex === REVIEW_NOTE_COLUMN_INDEX) return NOTE_ALIGNMENT;
+  if (columnIndex >= CHECK_COLUMN_INDEX && columnIndex <= REVIEW_TYPE_COLUMN_INDEX) return OUTPUT_ALIGNMENT;
+  return BODY_ALIGNMENT;
+}
+
+function getHeaderFill(columnIndex) {
+  return columnIndex >= CHECK_COLUMN_INDEX && columnIndex <= OUTPUT_LAST_COLUMN_INDEX ? OUTPUT_HEADER_FILL : HEADER_FILL;
+}
+
+function getBodyFill(rowIndex) {
+  return rowIndex % 2 === 0 ? ZEBRA_FILL : BODY_FILL;
+}
+
+function getResultCellStyle(columnIndex, value) {
+  const text = String(value || "").trim();
+  if (columnIndex === CHECK_COLUMN_INDEX) return getCheckStatusStyle(text);
+  if (columnIndex === REMARK_COLUMN_INDEX && isReturnRemark(text)) return getReturnRemarkStyle();
+  if (columnIndex === REVIEW_RESULT_COLUMN_INDEX) return getReviewResultStyle(text);
+  if (columnIndex === REVIEW_TYPE_COLUMN_INDEX && text) return getExceptionTypeStyle(text);
+  if (columnIndex === REVIEW_NOTE_COLUMN_INDEX && text) return getReviewNoteStyle();
+  return {};
+}
+
+function getCheckStatusStyle(value) {
+  if (value === "已核实") {
+    return {
+      fill: solidFill("FFE6F4EA"),
+      font: { bold: true, color: { rgb: "FF146C43" } },
+    };
+  }
+  if (value === "待核实") {
+    return {
+      fill: solidFill("FFFFF4D6"),
+      font: { bold: true, color: { rgb: "FF8A5A00" } },
+    };
+  }
+  if (value === "无记录") {
+    return {
+      fill: solidFill("FFFFE4E6"),
+      font: { bold: true, color: { rgb: "FFB42318" } },
+    };
+  }
+  return {};
+}
+
+function getReturnRemarkStyle() {
+  return {
+    fill: solidFill("FFFFE4E6"),
+    font: { bold: true, color: { rgb: "FFB42318" } },
+  };
+}
+
+function getReviewResultStyle(value) {
+  if (value === "复核通过") {
+    return {
+      fill: solidFill("FFE6F4EA"),
+      font: { bold: true, color: { rgb: "FF146C43" } },
+    };
+  }
+  if (value === "需复核") {
+    return {
+      fill: solidFill("FFFFF4D6"),
+      font: { bold: true, color: { rgb: "FF8A5A00" } },
+    };
+  }
+  if (value === "异常") {
+    return {
+      fill: solidFill("FFFFE4E6"),
+      font: { bold: true, color: { rgb: "FFB42318" } },
+    };
+  }
+  if (value === "不适用") {
+    return {
+      fill: solidFill("FFF1F5F9"),
+      font: { color: { rgb: "FF64748B" } },
+    };
+  }
+  return {};
+}
+
+function getExceptionTypeStyle() {
+  return {
+    fill: solidFill("FFFFF1F2"),
+    font: { bold: true, color: { rgb: "FFB42318" } },
+  };
+}
+
+function getReviewNoteStyle() {
+  return {
+    fill: solidFill("FFF8FBFF"),
+    font: { color: { rgb: "FF334155" } },
+  };
+}
+
+function solidFill(rgb) {
+  return {
+    patternType: "solid",
+    fgColor: { rgb },
   };
 }
 
