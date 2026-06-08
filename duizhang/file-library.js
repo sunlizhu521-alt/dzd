@@ -17,6 +17,15 @@ const generateSlotIds = {
 
 const CHECK_COLUMN_INDEX = 22;
 const REMARK_COLUMN_INDEX = 23;
+const REVIEW_RESULT_COLUMN_INDEX = 24;
+const REVIEW_TYPE_COLUMN_INDEX = 25;
+const REVIEW_NOTE_COLUMN_INDEX = 26;
+const OUTPUT_LAST_COLUMN_INDEX = REVIEW_NOTE_COLUMN_INDEX;
+const PURCHASE_KIND_LABELS = {
+  vehicle: "整车购买",
+  parts: "配件购买",
+};
+const MAX_SEARCH_MATCHES = 100;
 const TABLE_BORDER_STYLE = {
   style: "thin",
   color: { rgb: "FFB7C4D6" },
@@ -351,9 +360,9 @@ function buildOperationSearchSets(workbook) {
   const partsNames = getSheetNamesByMatcher(workbook, (name) => normalizeSearchValue(name).includes("配件表"));
   const vehicleNames = [...new Set(vehicleGroups.flatMap((group) => group.names))];
   return {
-    vehicle: buildWorkbookSearchEntries(workbook, vehicleNames),
+    vehicle: buildWorkbookSearchEntries(workbook, vehicleNames, "vehicle"),
     vehicleMissing: vehicleGroups.filter((group) => !group.names.length).map((group) => group.label),
-    parts: buildWorkbookSearchEntries(workbook, partsNames),
+    parts: buildWorkbookSearchEntries(workbook, partsNames, "parts"),
     partsMissing: partsNames.length ? [] : ["配件表"],
   };
 }
@@ -362,28 +371,161 @@ function getSheetNamesByMatcher(workbook, matcher) {
   return (workbook.SheetNames || []).filter((name) => matcher(String(name || "")));
 }
 
-function buildWorkbookSearchEntries(workbook, sheetNames = workbook.SheetNames || []) {
-  return sheetNames.flatMap((sheetName) => buildSheetSearchEntries(workbook.Sheets[sheetName], sheetName));
+function buildWorkbookSearchEntries(workbook, sheetNames = workbook.SheetNames || [], defaultKind = "") {
+  return sheetNames.flatMap((sheetName) => buildSheetSearchEntries(workbook.Sheets[sheetName], sheetName, defaultKind));
 }
 
-function buildSheetSearchEntries(sheet, sheetName) {
+function buildSheetSearchEntries(sheet, sheetName, defaultKind = "") {
   if (!sheet) return [];
+  const range = window.XLSX.utils.decode_range(sheet["!ref"] || "A1:A1");
+  const headerRow = findLikelyHeaderRow(sheet, range);
+  const headers = buildHeaderTexts(sheet, headerRow, range);
+  const profileCache = new Map();
+  const getProfile = (rowIndex) => {
+    if (!profileCache.has(rowIndex)) {
+      profileCache.set(rowIndex, buildRowProfile(sheet, rowIndex, range, headers, defaultKind, sheetName));
+    }
+    return profileCache.get(rowIndex);
+  };
+
   return Object.entries(sheet)
     .filter(([address]) => !address.startsWith("!"))
     .map(([address, cell]) => {
+      const decodedAddress = window.XLSX.utils.decode_cell(address);
+      if (decodedAddress.r <= headerRow) return null;
       const text = getCellText(cell);
+      const profile = getProfile(decodedAddress.r);
       return text
         ? {
             address,
             sheetName,
+            rowIndex: decodedAddress.r,
+            columnIndex: decodedAddress.c,
             text,
             normalized: normalizeSearchValue(text),
-            red: isRedFontCell(cell),
-            returnLike: isReturnOrUnshippedText(text),
+            profile,
+            red: isRedFontCell(cell) || profile.red,
+            returnLike: isReturnOrUnshippedText(text) || profile.returnLike,
           }
         : null;
     })
     .filter(Boolean);
+}
+
+function findLikelyHeaderRow(sheet, range) {
+  const maxScanRow = Math.min(range.e.r, range.s.r + 8);
+  let bestRow = range.s.r;
+  let bestScore = 0;
+  for (let rowIndex = range.s.r; rowIndex <= maxScanRow; rowIndex += 1) {
+    let score = 0;
+    for (let columnIndex = range.s.c; columnIndex <= range.e.c; columnIndex += 1) {
+      if (isHeaderLikeText(getSheetCellText(sheet, rowIndex, columnIndex))) score += 1;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestRow = rowIndex;
+    }
+  }
+  return bestScore ? bestRow : range.s.r;
+}
+
+function buildHeaderTexts(sheet, headerRow, range) {
+  const headers = [];
+  for (let columnIndex = range.s.c; columnIndex <= range.e.c; columnIndex += 1) {
+    headers[columnIndex] = getSheetCellText(sheet, headerRow, columnIndex);
+  }
+  return headers;
+}
+
+function buildRowProfile(sheet, rowIndex, range, headers, defaultKind = "", sheetName = "") {
+  const rowTexts = [];
+  let red = false;
+  for (let columnIndex = range.s.c; columnIndex <= range.e.c; columnIndex += 1) {
+    const address = window.XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+    const cell = sheet[address];
+    const text = getCellText(cell);
+    rowTexts[columnIndex] = text;
+    if (isRedFontCell(cell)) red = true;
+  }
+  const fullText = rowTexts.filter(Boolean).join(" ");
+  const purchaseKind = detectPurchaseKind(fullText) || defaultKind;
+  const canceled = isReturnOrUnshippedText(fullText);
+  return {
+    id: `${sheetName}!${rowIndex}`,
+    sheetName,
+    rowIndex,
+    rowNumber: rowIndex + 1,
+    quantity: getProfileQuantity(headers, rowTexts),
+    modelTokens: getProfileModelTokens(headers, rowTexts),
+    purchaseKind,
+    red,
+    canceled,
+    returnLike: red || canceled,
+    fullText,
+  };
+}
+
+function isHeaderLikeText(value) {
+  return /(客户|子客户|收件|姓名|快递|运单|单号|物流|型号|规格|商品|产品|货品|物料|sku|编码|品名|名称|数量|件数|状态|备注|发货|取消|退款)/i.test(
+    String(value || "")
+  );
+}
+
+function getProfileQuantity(headers, rowTexts) {
+  for (let columnIndex = 0; columnIndex < rowTexts.length; columnIndex += 1) {
+    if (!isQuantityHeader(headers[columnIndex])) continue;
+    const quantity = parseQuantity(rowTexts[columnIndex]);
+    if (quantity !== null) return quantity;
+  }
+  return 1;
+}
+
+function isQuantityHeader(value) {
+  const text = String(value || "");
+  if (/(单号|订单|快递|运单|物流|电话|手机|金额|价格|日期|时间|型号|规格|编码|sku|SKU)/.test(text)) {
+    return false;
+  }
+  return /(数量|件数|发货数|发货数量|订购数|购买数|要得数量|要的数量|实发|应发|需求数|下单数)/.test(text);
+}
+
+function parseQuantity(value) {
+  const text = String(value || "").replace(/,/g, "").trim();
+  if (!text) return null;
+  if (/^-?\d+(?:\.\d+)?$/.test(text)) return Number(text);
+  const match = text.match(/(?:数量|件数|发货数|购买数|要得数量|要的数量|实发|应发)?[:：]?\s*(-?\d+(?:\.\d+)?)\s*(?:件|台|套|个|辆|pcs)?/i);
+  return match ? Number(match[1]) : null;
+}
+
+function getProfileModelTokens(headers, rowTexts) {
+  const values = [];
+  for (let columnIndex = 0; columnIndex < rowTexts.length; columnIndex += 1) {
+    if (isModelHeader(headers[columnIndex])) values.push(rowTexts[columnIndex]);
+  }
+  return extractModelTokens(values.join(" "));
+}
+
+function isModelHeader(value) {
+  const text = String(value || "");
+  if (/(客户|子客户|收件|姓名|电话|手机|地址|单号|订单|运单|快递|物流|状态|数量|件数|金额|价格|日期|时间|备注)/.test(text)) {
+    return false;
+  }
+  return /(型号|规格|商品|产品|货品|物料|sku|SKU|编码|品名|名称|款式|物料号|商品名称)/.test(text);
+}
+
+function extractModelTokens(value) {
+  const raw = String(value || "");
+  const tokens = raw
+    .split(/[\s,，、;；/|]+/)
+    .map((part) => normalizeSearchValue(part))
+    .filter((token) => token.length >= 2 && !/^\d+$/.test(token));
+  const compact = normalizeSearchValue(raw);
+  if (compact.length >= 2 && !/^\d+$/.test(compact)) tokens.push(compact);
+  const codeMatches = raw.match(/[a-z]{0,4}\d{2,}[a-z0-9-]*/gi) || [];
+  codeMatches.forEach((match) => {
+    const token = normalizeSearchValue(match);
+    if (token.length >= 2) tokens.push(token);
+  });
+  return [...new Set(tokens)].slice(0, 20);
 }
 
 function pickYileSheetName(workbook) {
@@ -394,10 +536,11 @@ function pickYileSheetName(workbook) {
 }
 
 function fillReconciliationSheet(sheet, operationSets, wdtEntries) {
-  const range = window.XLSX.utils.decode_range(sheet["!ref"] || "A1:X1");
+  const range = window.XLSX.utils.decode_range(sheet["!ref"] || "A1:AA1");
   const headerRow = range.s.r;
   const maxRow = Math.max(range.e.r, headerRow);
   const originalDataMaxColumn = Math.min(Math.max(range.e.c, 6), CHECK_COLUMN_INDEX - 1);
+  const yileContext = buildYileContext(sheet, headerRow, maxRow, originalDataMaxColumn);
   const stats = {
     checkedRows: 0,
     verifiedCount: 0,
@@ -408,15 +551,29 @@ function fillReconciliationSheet(sheet, operationSets, wdtEntries) {
 
   writeTextCell(sheet, headerRow, CHECK_COLUMN_INDEX, "核对确认");
   writeTextCell(sheet, headerRow, REMARK_COLUMN_INDEX, "备注");
+  writeTextCell(sheet, headerRow, REVIEW_RESULT_COLUMN_INDEX, "复核结果");
+  writeTextCell(sheet, headerRow, REVIEW_TYPE_COLUMN_INDEX, "异常类型");
+  writeTextCell(sheet, headerRow, REVIEW_NOTE_COLUMN_INDEX, "复核说明");
 
   for (let rowIndex = headerRow + 1; rowIndex <= maxRow; rowIndex += 1) {
     if (!rowHasAnyValue(sheet, rowIndex, originalDataMaxColumn)) continue;
     const type = getSheetCellText(sheet, rowIndex, 1);
     const customer = getSheetCellText(sheet, rowIndex, 2);
     const trackingNumber = getSheetCellText(sheet, rowIndex, 6);
-    const result = getRowReconciliationResult(type, customer, trackingNumber, operationSets, wdtEntries);
+    const result = getRowReconciliationResult(
+      type,
+      customer,
+      trackingNumber,
+      operationSets,
+      wdtEntries,
+      yileContext.rows.get(rowIndex),
+      yileContext
+    );
     writeTextCell(sheet, rowIndex, CHECK_COLUMN_INDEX, result.status);
     writeTextCell(sheet, rowIndex, REMARK_COLUMN_INDEX, result.remark);
+    writeTextCell(sheet, rowIndex, REVIEW_RESULT_COLUMN_INDEX, result.reviewResult);
+    writeTextCell(sheet, rowIndex, REVIEW_TYPE_COLUMN_INDEX, result.exceptionType);
+    writeTextCell(sheet, rowIndex, REVIEW_NOTE_COLUMN_INDEX, result.reviewNote);
     stats.checkedRows += 1;
     if (result.status === "已核实") stats.verifiedCount += 1;
     if (result.status === "待核实") stats.pendingCount += 1;
@@ -424,7 +581,7 @@ function fillReconciliationSheet(sheet, operationSets, wdtEntries) {
     if (result.status === "无记录") stats.noRecordCount += 1;
   }
 
-  range.e.c = Math.max(range.e.c, REMARK_COLUMN_INDEX);
+  range.e.c = Math.max(range.e.c, OUTPUT_LAST_COLUMN_INDEX);
   range.e.r = Math.max(range.e.r, maxRow);
   sheet["!ref"] = window.XLSX.utils.encode_range(range);
   applyGeneratedTableStyle(sheet, headerRow, range);
@@ -432,29 +589,115 @@ function fillReconciliationSheet(sheet, operationSets, wdtEntries) {
   return stats;
 }
 
-function getRowReconciliationResult(type, customer, trackingNumber, operationSets, wdtEntries) {
+function buildYileContext(sheet, headerRow, maxRow, originalDataMaxColumn) {
+  const range = {
+    s: { r: headerRow, c: 0 },
+    e: { r: maxRow, c: originalDataMaxColumn },
+  };
+  const headers = buildHeaderTexts(sheet, headerRow, range);
+  const context = {
+    rows: new Map(),
+    aggregates: new Map(),
+  };
+
+  for (let rowIndex = headerRow + 1; rowIndex <= maxRow; rowIndex += 1) {
+    if (!rowHasAnyValue(sheet, rowIndex, originalDataMaxColumn)) continue;
+    const type = getSheetCellText(sheet, rowIndex, 1);
+    const kind = getPurchaseKindFromType(type);
+    const customer = getSheetCellText(sheet, rowIndex, 2);
+    const trackingNumber = getSheetCellText(sheet, rowIndex, 6);
+    const profile = buildRowProfile(sheet, rowIndex, range, headers, kind, "易乐对账表");
+    const row = { rowIndex, kind, customer, trackingNumber, profile };
+    context.rows.set(rowIndex, row);
+    addYileAggregate(context, "customer", kind, customer, row);
+    addYileAggregate(context, "tracking", kind, trackingNumber, row);
+  }
+  return context;
+}
+
+function addYileAggregate(context, field, kind, value, row) {
+  const key = getYileAggregateKey(field, kind, value);
+  if (!key) return;
+  if (!context.aggregates.has(key)) {
+    context.aggregates.set(key, {
+      field,
+      kind,
+      value,
+      quantity: 0,
+      rowCount: 0,
+      trackingNumbers: new Set(),
+      rows: [],
+    });
+  }
+  const aggregate = context.aggregates.get(key);
+  aggregate.quantity += getProfileQuantityValue(row.profile);
+  aggregate.rowCount += 1;
+  const trackingKey = normalizeSearchValue(row.trackingNumber);
+  if (trackingKey) aggregate.trackingNumbers.add(trackingKey);
+  aggregate.rows.push(row);
+}
+
+function getYileAggregate(context, field, kind, value) {
+  const key = getYileAggregateKey(field, kind, value);
+  return key ? context.aggregates.get(key) || null : null;
+}
+
+function getYileAggregateKey(field, kind, value) {
+  const normalizedValue = normalizeSearchValue(value);
+  if (!field || !kind || !normalizedValue) return "";
+  return `${field}|${kind}|${normalizedValue}`;
+}
+
+function getRowReconciliationResult(type, customer, trackingNumber, operationSets, wdtEntries, yileRow, yileContext) {
   const typeText = String(type || "").trim();
-  if (!isVehiclePurchase(typeText) && !isPartsPurchase(typeText)) {
-    return { status: typeText, remark: "" };
+  const purchaseKind = getPurchaseKindFromType(typeText);
+  if (!purchaseKind) {
+    return {
+      status: typeText,
+      remark: "",
+      reviewResult: "不适用",
+      exceptionType: "",
+      reviewNote: "非整车购买/配件购买，按B列原值写入W列。",
+    };
   }
 
-  const operationEntries = isVehiclePurchase(typeText)
+  const operationEntries = purchaseKind === "vehicle"
     ? getRequiredOperationEntries(operationSets.vehicle, operationSets.vehicleMissing, typeText)
     : getRequiredOperationEntries(operationSets.parts, operationSets.partsMissing, typeText);
   const customerResult = evaluateLookup(customer, operationEntries, wdtEntries);
+  const trackingResult = evaluateLookup(trackingNumber, operationEntries, wdtEntries);
+  let status = "";
+  let remark = "";
+
   if (customerResult.both) {
-    return { status: "已核实", remark: customerResult.returnLike ? "退货/未发" : "" };
+    status = "已核实";
+    remark = customerResult.returnLike ? "退货/未发" : "";
+  } else if (trackingResult.both) {
+    const hasReturnLikeMatch = customerResult.returnLike || trackingResult.returnLike;
+    status = "已核实";
+    remark = hasReturnLikeMatch ? "退货/未发" : "";
+  } else {
+    const hasAnyMatch = customerResult.any || trackingResult.any;
+    const hasReturnLikeMatch = customerResult.returnLike || trackingResult.returnLike;
+    status = hasAnyMatch ? "待核实" : "无记录";
+    remark = hasReturnLikeMatch ? "退货/未发" : "";
   }
 
-  const trackingResult = evaluateLookup(trackingNumber, operationEntries, wdtEntries);
-  const hasAnyMatch = customerResult.any || trackingResult.any;
-  const hasReturnLikeMatch = customerResult.returnLike || trackingResult.returnLike;
-  if (trackingResult.both) {
-    return { status: "已核实", remark: hasReturnLikeMatch ? "退货/未发" : "" };
-  }
+  const review = buildReviewResult({
+    purchaseKind,
+    customer,
+    trackingNumber,
+    status,
+    yileRow,
+    yileContext,
+    operationSets,
+    customerResult,
+    trackingResult,
+  });
   return {
-    status: hasAnyMatch ? "待核实" : "无记录",
-    remark: hasReturnLikeMatch ? "退货/未发" : "",
+    status,
+    remark,
+    ...review,
   };
 }
 
@@ -465,6 +708,220 @@ function getRequiredOperationEntries(entries, missingLabels, typeText) {
   return entries;
 }
 
+function buildReviewResult({
+  purchaseKind,
+  customer,
+  trackingNumber,
+  status,
+  yileRow,
+  yileContext,
+  operationSets,
+  customerResult,
+  trackingResult,
+}) {
+  const issues = [];
+  const notes = [];
+  const expectedOperationEntries = getUniqueRowEntries([
+    ...customerResult.operationMatches,
+    ...trackingResult.operationMatches,
+  ]);
+  const expectedOperationProfiles = getUniqueProfiles(expectedOperationEntries);
+  const matchedWdtEntries = getUniqueRowEntries([...customerResult.wdtMatches, ...trackingResult.wdtMatches]);
+
+  if (status === "无记录") {
+    addIssue(issues, "无匹配记录");
+    notes.push("子客户和快递单号均未在运营登记表、旺店通代发表形成有效命中。");
+  } else if (status === "待核实") {
+    addIssue(issues, "仅单边命中");
+    notes.push(`命中状态：${describeLookupResult(customerResult, "子客户")}；${describeLookupResult(trackingResult, "快递单号")}。`);
+  }
+
+  appendTypeReviewNotes({
+    issues,
+    notes,
+    purchaseKind,
+    customer,
+    trackingNumber,
+    operationSets,
+    expectedOperationProfiles,
+  });
+  appendModelReviewNotes({
+    issues,
+    notes,
+    yileRow,
+    expectedOperationProfiles,
+  });
+  appendQuantityReviewNotes({
+    issues,
+    notes,
+    purchaseKind,
+    customer,
+    trackingNumber,
+    yileContext,
+    expectedOperationProfiles,
+  });
+  appendCancellationReviewNotes({
+    issues,
+    notes,
+    yileRow,
+    trackingNumber,
+    expectedOperationProfiles,
+    customerResult,
+    trackingResult,
+    matchedWdtEntries,
+  });
+
+  const uniqueIssues = [...new Set(issues)];
+  if (!uniqueIssues.length) {
+    return {
+      reviewResult: "复核通过",
+      exceptionType: "",
+      reviewNote: notes.length ? dedupeJoin(notes) : "已核实，未发现类型、型号、数量或取消发货异常。",
+    };
+  }
+
+  return {
+    reviewResult: uniqueIssues.length === 1 && uniqueIssues[0] === "仅单边命中" ? "需复核" : "异常",
+    exceptionType: uniqueIssues.join("、"),
+    reviewNote: dedupeJoin(notes),
+  };
+}
+
+function appendTypeReviewNotes({ issues, notes, purchaseKind, customer, trackingNumber, operationSets, expectedOperationProfiles }) {
+  const oppositeKind = getOppositePurchaseKind(purchaseKind);
+  const oppositeEntries = operationSets[oppositeKind] || [];
+  const oppositeCustomerResult = searchEntries(customer, oppositeEntries);
+  const oppositeTrackingResult = searchEntries(trackingNumber, oppositeEntries);
+
+  if (expectedOperationProfiles.some((profile) => profile.purchaseKind && profile.purchaseKind !== purchaseKind)) {
+    addIssue(issues, "类型不一致");
+    notes.push(`运营登记表命中行疑似为${getPurchaseKindLabel(getOppositePurchaseKind(purchaseKind))}，与易乐B列${getPurchaseKindLabel(purchaseKind)}不一致。`);
+  }
+
+  if (oppositeTrackingResult.found || (!expectedOperationProfiles.length && oppositeCustomerResult.found)) {
+    addIssue(issues, "类型不一致");
+    notes.push(`按${oppositeTrackingResult.found ? "快递单号" : "子客户"}在运营登记表${getPurchaseKindLabel(oppositeKind)}范围内也有命中，需核对实际发货类型。`);
+  } else if (oppositeCustomerResult.found) {
+    notes.push(`同一子客户在运营登记表${getPurchaseKindLabel(oppositeKind)}范围内也有记录，需留意是否混发或登记类型错位。`);
+  }
+}
+
+function appendModelReviewNotes({ issues, notes, yileRow, expectedOperationProfiles }) {
+  const yileTokens = yileRow?.profile?.modelTokens || [];
+  const operationTokens = [...new Set(expectedOperationProfiles.flatMap((profile) => profile.modelTokens || []))];
+  if (!yileTokens.length || !operationTokens.length) return;
+  if (hasMeaningfulTokenOverlap(yileTokens, operationTokens)) return;
+  addIssue(issues, "型号不一致");
+  notes.push(`型号复核：易乐表为${formatTokens(yileTokens)}，运营登记表为${formatTokens(operationTokens)}。`);
+}
+
+function appendQuantityReviewNotes({ issues, notes, purchaseKind, customer, trackingNumber, yileContext, expectedOperationProfiles }) {
+  const customerAggregate = getYileAggregate(yileContext, "customer", purchaseKind, customer);
+  const trackingAggregate = getYileAggregate(yileContext, "tracking", purchaseKind, trackingNumber);
+  const aggregate = customerAggregate || trackingAggregate;
+  if (!aggregate || !expectedOperationProfiles.length) return;
+
+  const yileQuantity = aggregate.quantity;
+  const operationQuantity = sumProfileQuantity(expectedOperationProfiles);
+  if (Number.isFinite(yileQuantity) && Number.isFinite(operationQuantity) && Math.abs(yileQuantity - operationQuantity) > 0.000001) {
+    addIssue(issues, yileQuantity > operationQuantity ? "疑似多发" : "数量不一致");
+    notes.push(`数量复核：易乐合计${formatQuantity(yileQuantity)}，运营登记表合计${formatQuantity(operationQuantity)}。`);
+  }
+
+  if (aggregate.rowCount > 1 || aggregate.trackingNumbers.size > 1) {
+    notes.push(`同一${aggregate.field === "customer" ? "子客户" : "快递单号"}在易乐表有${aggregate.rowCount}行、${aggregate.trackingNumbers.size || 1}个快递单号，已按${getPurchaseKindLabel(purchaseKind)}汇总数量复核。`);
+  }
+}
+
+function appendCancellationReviewNotes({
+  issues,
+  notes,
+  yileRow,
+  trackingNumber,
+  expectedOperationProfiles,
+  customerResult,
+  trackingResult,
+  matchedWdtEntries,
+}) {
+  const operationCanceled = expectedOperationProfiles.some((profile) => profile.returnLike || profile.canceled || profile.red)
+    || customerResult.operationReturnLike
+    || trackingResult.operationReturnLike;
+  if (!operationCanceled) return;
+
+  const yileCanceled = Boolean(yileRow?.profile?.returnLike || yileRow?.profile?.canceled);
+  const yileLooksShipped = Boolean(normalizeSearchValue(trackingNumber)) || matchedWdtEntries.length > 0 || customerResult.wdtFound || trackingResult.wdtFound;
+  if (!yileCanceled && yileLooksShipped) {
+    addIssue(issues, "运营已取消但易乐未取消发货");
+    notes.push("运营登记表命中取消/退款/退货/未发或红字记录，但易乐行仍有发货线索，需核对是否应取消发货。");
+  }
+}
+
+function addIssue(issues, issue) {
+  if (issue && !issues.includes(issue)) issues.push(issue);
+}
+
+function describeLookupResult(result, label) {
+  if (result.both) return `${label}两边命中`;
+  if (result.operationFound) return `${label}仅运营登记表命中`;
+  if (result.wdtFound) return `${label}仅旺店通代发表命中`;
+  return `${label}未命中`;
+}
+
+function getUniqueRowEntries(entries) {
+  const seen = new Set();
+  const unique = [];
+  for (const entry of entries || []) {
+    const key = `${entry.sheetName || ""}|${entry.rowIndex ?? entry.address}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(entry);
+  }
+  return unique;
+}
+
+function getUniqueProfiles(entries) {
+  const seen = new Set();
+  const profiles = [];
+  for (const entry of entries || []) {
+    const profile = entry.profile;
+    if (!profile || seen.has(profile.id)) continue;
+    seen.add(profile.id);
+    profiles.push(profile);
+  }
+  return profiles;
+}
+
+function sumProfileQuantity(profiles) {
+  return profiles.reduce((total, profile) => total + getProfileQuantityValue(profile), 0);
+}
+
+function getProfileQuantityValue(profile) {
+  const quantity = Number(profile?.quantity);
+  return Number.isFinite(quantity) ? quantity : 1;
+}
+
+function hasMeaningfulTokenOverlap(leftTokens, rightTokens) {
+  return leftTokens.some((left) => rightTokens.some((right) => modelTokensMatch(left, right)));
+}
+
+function modelTokensMatch(left, right) {
+  if (!left || !right) return false;
+  if (left === right) return true;
+  return (left.length >= 3 && right.includes(left)) || (right.length >= 3 && left.includes(right));
+}
+
+function formatTokens(tokens) {
+  return tokens.slice(0, 5).join("、") || "--";
+}
+
+function formatQuantity(value) {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
+}
+
+function dedupeJoin(values) {
+  return [...new Set(values.filter(Boolean))].join("；");
+}
+
 function isVehiclePurchase(typeText) {
   return String(typeText || "").trim().includes("整车购买");
 }
@@ -473,12 +930,37 @@ function isPartsPurchase(typeText) {
   return String(typeText || "").trim().includes("配件购买");
 }
 
+function getPurchaseKindFromType(typeText) {
+  if (isVehiclePurchase(typeText)) return "vehicle";
+  if (isPartsPurchase(typeText)) return "parts";
+  return "";
+}
+
+function detectPurchaseKind(value) {
+  const text = String(value || "");
+  if (isVehiclePurchase(text) || text.includes("整车")) return "vehicle";
+  if (isPartsPurchase(text) || text.includes("配件")) return "parts";
+  return "";
+}
+
+function getOppositePurchaseKind(kind) {
+  return kind === "vehicle" ? "parts" : "vehicle";
+}
+
+function getPurchaseKindLabel(kind) {
+  return PURCHASE_KIND_LABELS[kind] || kind || "--";
+}
+
 function evaluateLookup(query, operationEntries, wdtEntries) {
   const operationResult = searchEntries(query, operationEntries);
   const wdtResult = searchEntries(query, wdtEntries);
   return {
     operationFound: operationResult.found,
     wdtFound: wdtResult.found,
+    operationMatches: operationResult.matches,
+    wdtMatches: wdtResult.matches,
+    operationReturnLike: operationResult.returnLike,
+    wdtReturnLike: wdtResult.returnLike,
     both: operationResult.found && wdtResult.found,
     any: operationResult.found || wdtResult.found,
     returnLike: operationResult.returnLike || wdtResult.returnLike,
@@ -487,15 +969,22 @@ function evaluateLookup(query, operationEntries, wdtEntries) {
 
 function searchEntries(query, entries) {
   const normalizedQuery = normalizeSearchValue(query);
-  if (!normalizedQuery) return { found: false, returnLike: false };
+  if (!normalizedQuery) return { found: false, returnLike: false, matches: [] };
   let found = false;
   let returnLike = false;
+  const matches = [];
+  const seenRows = new Set();
   for (const entry of entries) {
     if (!entry.normalized || !entry.normalized.includes(normalizedQuery)) continue;
     found = true;
-    if (entry.red || entry.returnLike) returnLike = true;
+    if (entry.red || entry.returnLike || entry.profile?.returnLike) returnLike = true;
+    const key = `${entry.sheetName || ""}|${entry.rowIndex ?? entry.address}`;
+    if (!seenRows.has(key) && matches.length < MAX_SEARCH_MATCHES) {
+      seenRows.add(key);
+      matches.push(entry);
+    }
   }
-  return { found, returnLike };
+  return { found, returnLike, matches };
 }
 
 function rowHasAnyValue(sheet, rowIndex, maxColumnIndex) {
@@ -525,13 +1014,16 @@ function ensureOutputColumnWidths(sheet) {
   const columns = sheet["!cols"] || [];
   columns[CHECK_COLUMN_INDEX] = { ...(columns[CHECK_COLUMN_INDEX] || {}), wch: 12 };
   columns[REMARK_COLUMN_INDEX] = { ...(columns[REMARK_COLUMN_INDEX] || {}), wch: 10 };
+  columns[REVIEW_RESULT_COLUMN_INDEX] = { ...(columns[REVIEW_RESULT_COLUMN_INDEX] || {}), wch: 12 };
+  columns[REVIEW_TYPE_COLUMN_INDEX] = { ...(columns[REVIEW_TYPE_COLUMN_INDEX] || {}), wch: 24 };
+  columns[REVIEW_NOTE_COLUMN_INDEX] = { ...(columns[REVIEW_NOTE_COLUMN_INDEX] || {}), wch: 52 };
   sheet["!cols"] = columns;
 }
 
 function applyGeneratedTableStyle(sheet, headerRow, range) {
   const styledRange = {
     s: { r: headerRow, c: range.s.c },
-    e: { r: range.e.r, c: Math.max(range.e.c, REMARK_COLUMN_INDEX) },
+    e: { r: range.e.r, c: Math.max(range.e.c, OUTPUT_LAST_COLUMN_INDEX) },
   };
   sheet["!autofilter"] = {
     ref: window.XLSX.utils.encode_range({
@@ -579,7 +1071,7 @@ function isRedFontCell(cell) {
 }
 
 function isReturnOrUnshippedText(value) {
-  return /(取消|退款)/.test(String(value || ""));
+  return /(取消|退款|退货|未发)/.test(String(value || ""));
 }
 
 function isReturnRemark(value) {

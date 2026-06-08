@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>易乐对账 - 供应商对账</title>
-    <link rel="stylesheet" href="./styles.css?v=20260609-4" />
+    <link rel="stylesheet" href="./styles.css?v=20260609-5" />
   </head>
   <body>
     <div class="app-shell">
@@ -92,10 +92,15 @@
           </div>
           <div class="logic-grid">
             <div><strong>适用范围</strong><span>本页逻辑仅用于易乐对账；后续新增的其他供应商对账页面会使用独立逻辑，不共用本页核对规则。</span></div>
-            <div><strong>判断类型</strong><span>B列为整车购买或配件购买时进入核对；其他类型直接写入W列。</span></div>
-            <div><strong>查找字段</strong><span>优先用C列子客户查找，未核实再用G列快递单号查找。</span></div>
-            <div><strong>运营登记表</strong><span>整车查D75（985S）发货表和D52&D36发货表；配件查配件表。</span></div>
-            <div><strong>结果口径</strong><span>运营登记表和旺店通代发表都命中为已核实；只命中一边为待核实；都未命中为无记录；红字、取消或退款命中备注退货/未发。</span></div>
+            <div><strong>文件槽位</strong><span>1为旺店通代发表，2为运营登记表，3为易乐对账表，4为备用槽位；一键生成表只读取前3个已应用文件。</span></div>
+            <div><strong>判断类型</strong><span>B列为整车购买或配件购买时进入核对；其他类型不参与查找，直接把B列内容写入W列。</span></div>
+            <div><strong>查找顺序</strong><span>先用C列子客户同时查运营登记表和旺店通代发表；未形成已核实时，再用G列快递单号按同样范围查找。</span></div>
+            <div><strong>基础结果</strong><span>同一个查找字段在运营登记表和旺店通代发表都命中，W列为已核实；只命中一边为待核实；都未命中为无记录。</span></div>
+            <div><strong>退货/未发</strong><span>命中行出现红字、取消、退款、退货或未发时，X列写入退货/未发，并计入退货数量。</span></div>
+            <div><strong>复核列位</strong><span>生成表会新增Y列复核结果、Z列异常类型、AA列复核说明；W/X保留基础核对结果。</span></div>
+            <div><strong>类型/型号复核</strong><span>整车购买只应匹配运营登记表整车发货范围，配件购买只应匹配配件表；同时比对可识别的型号、规格、商品、SKU等字段。</span></div>
+            <div><strong>数量复核</strong><span>按同一子客户优先汇总易乐行数、数量和快递单号，再与运营登记表命中行的要得数量、发货数量或件数对比，识别疑似多发或数量不一致。</span></div>
+            <div><strong>取消发货复核</strong><span>运营登记表已取消、退款、退货、未发或红字，但易乐仍有快递单号或旺店通发货线索时，标记运营已取消但易乐未取消发货。</span></div>
           </div>
         </section>
 
@@ -113,7 +118,7 @@
     </div>
 
     <script src="../vendor/xlsx.full.min.js?v=20260601-1"></script>
-    <script src="./shared-library.js?v=20260609-4"></script>
-    <script src="./file-library.js?v=20260609-4"></script>
+    <script src="./shared-library.js?v=20260609-5"></script>
+    <script src="./file-library.js?v=20260609-5"></script>
   </body>
 </html>
