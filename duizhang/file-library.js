@@ -6,7 +6,7 @@ const slots = [
   { id: "file-1", label: "旺店通代发表" },
   { id: "file-2", label: "运营登记表" },
   { id: "file-3", label: "易乐对账表" },
-  { id: "file-4", label: "对账文件 4" },
+  { id: "file-4", label: "易乐对账 4" },
 ];
 
 const generateSlotIds = {
@@ -202,7 +202,7 @@ async function deleteSlot(slotId) {
 }
 
 async function clearLibraryCache() {
-  const confirmed = window.confirm("确认清除当前浏览器里的对账文件缓存吗？清除后需要重新上传并应用文件。");
+  const confirmed = window.confirm("确认清除当前浏览器里的易乐对账文件缓存吗？清除后需要重新上传并应用文件。");
   if (!confirmed) return;
 
   els.clearCacheButton.disabled = true;
