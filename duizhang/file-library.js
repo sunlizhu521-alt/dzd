@@ -267,7 +267,10 @@ async function generateReconciliationWorkbook() {
   try {
     const { sources, yileWorkbook, result } = await buildReconciliationWorkbookResult();
     updateReconciliationMetrics(result);
-    window.XLSX.writeFile(yileWorkbook, buildGeneratedFileName(sources.yile.name));
+    window.XLSX.writeFile(yileWorkbook, buildGeneratedFileName(sources.yile.name), {
+      bookType: "xlsx",
+      cellStyles: true,
+    });
     els.libraryState.textContent = `已生成 ${result.checkedRows} 行`;
   } catch (error) {
     console.warn("generate reconciliation workbook failed", error);
