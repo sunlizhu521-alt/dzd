@@ -7,4 +7,6 @@ GitHub Pages 静态供应商对账项目。
 - `index.html`: 供应商对账导航页
 - `yile-duizhang/index.html`: 易乐对账独立导航页
 - `yile-duizhang/file-library.html`: 易乐对账 4 槽位文件库
+- `youlebu-duizhang/index.html`: 优乐步对账独立导航页
+- `youlebu-duizhang/file-library.html`: 优乐步对账 4 槽位文件库
 - `duizhang/`: 原有页面保留不变

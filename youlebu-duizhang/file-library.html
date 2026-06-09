@@ -3,23 +3,23 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>易乐对账 - 供应商对账</title>
+    <title>优乐步对账 - 优乐步对账</title>
     <link rel="stylesheet" href="./styles.css?v=20260610-1" />
   </head>
   <body>
     <div class="app-shell">
-      <aside class="sidebar" aria-label="供应商对账">
+      <aside class="sidebar" aria-label="优乐步对账">
         <div class="brand">
-          <span class="brand-mark" aria-hidden="true">GY</span>
+          <span class="brand-mark" aria-hidden="true">YB</span>
           <div>
-            <strong>供应商对账</strong>
+            <strong>优乐步对账</strong>
             <span>对账工作台</span>
           </div>
         </div>
         <nav class="nav-list">
           <a href="../index.html">供应商对账</a>
-          <a class="active" href="./index.html">易乐对账</a>
-          <a href="../youlebu-duizhang/index.html">优乐步对账</a>
+          <a href="../yile-duizhang/index.html">易乐对账</a>
+          <a class="active" href="./index.html">优乐步对账</a>
         </nav>
       </aside>
 
@@ -27,7 +27,7 @@
         <header class="topbar">
           <div>
             <p class="eyebrow">File Library</p>
-            <h1>易乐对账</h1>
+            <h1>优乐步对账</h1>
             <small class="source-note" id="librarySourceNote">本地文件库｜引用时间：--</small>
           </div>
           <div class="topbar-actions">
@@ -41,7 +41,7 @@
           <article class="metric">
             <span>文件槽位</span>
             <strong id="slotCount">4</strong>
-            <small>易乐对账</small>
+            <small>对账文件</small>
           </article>
           <article class="metric">
             <span>已上传</span>
@@ -59,7 +59,7 @@
             <small>按上传时间</small>
           </article>
           <article class="metric result-metric">
-            <span>易乐对账表总行数</span>
+            <span>优乐步对账表总行数</span>
             <strong id="yileTotalRows">0</strong>
             <small>不含表头</small>
           </article>
@@ -74,12 +74,12 @@
             <small>生成后更新</small>
           </article>
           <article class="metric result-metric">
-            <span>退货数量</span>
+            <span>有命中数量</span>
             <strong id="returnCount">0</strong>
-            <small>退货/未发</small>
+            <small>姓名/快递单号</small>
           </article>
           <article class="metric result-metric">
-            <span>无记录数量</span>
+            <span>无信息数量</span>
             <strong id="noRecordCount">0</strong>
             <small>生成后更新</small>
           </article>
@@ -89,20 +89,17 @@
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Rules</p>
-              <h2>易乐对账逻辑说明</h2>
+              <h2>对账逻辑说明</h2>
             </div>
           </div>
           <div class="logic-grid">
-            <div><strong>适用范围</strong><span>本页逻辑仅用于易乐对账；后续新增的其他供应商对账页面会使用独立逻辑，不共用本页核对规则。</span></div>
-            <div><strong>文件槽位</strong><span>1为旺店通代发表，2为运营登记表，3为易乐对账表，4为备用槽位；一键生成表只读取前3个已应用文件。</span></div>
-            <div><strong>判断类型</strong><span>B列为整车购买或配件购买时进入核对；其他类型不参与查找，直接把B列内容写入W列。</span></div>
-            <div><strong>查找顺序</strong><span>先用C列子客户同时查运营登记表和旺店通代发表；未形成已核实时，再用G列快递单号按同样范围查找。</span></div>
-            <div><strong>基础结果</strong><span>同一个查找字段在运营登记表和旺店通代发表都命中，W列为已核实；只命中一边为待核实；都未命中为无记录。</span></div>
-            <div><strong>退货/未发</strong><span>命中行出现红字、取消、退款、退货或未发时，X列写入退货/未发，并计入退货数量。</span></div>
-            <div><strong>复核列位</strong><span>生成表会新增Y列复核结果、Z列异常类型、AA列复核说明；W/X保留基础核对结果。</span></div>
-            <div><strong>类型/型号复核</strong><span>整车购买只应匹配运营登记表整车发货范围，配件购买只应匹配配件表；同时比对可识别的型号、规格、商品、SKU等字段。</span></div>
-            <div><strong>数量复核</strong><span>按同一子客户优先汇总易乐行数、数量和快递单号，再与运营登记表命中行的要得数量、发货数量或件数对比，识别疑似多发或数量不一致。</span></div>
-            <div><strong>取消发货复核</strong><span>运营登记表已取消、退款、退货、未发或红字，但易乐仍有快递单号或旺店通发货线索时，标记运营已取消但易乐未取消发货。</span></div>
+            <div><strong>文件来源</strong><span>槽位1上传运营登记表，槽位2上传优乐步对账表；点击一键刷新应用后，页面会基于已引用文件刷新统计。</span></div>
+            <div><strong>优乐步对账表列位</strong><span>M列作为姓名，N列作为快递单号；生成表只从第3行开始在Q列写核对结果、R列写命中备注。</span></div>
+            <div><strong>保留A-N格式</strong><span>生成时会保护A-N列原有样式、边框、列宽、筛选、行设置和合并单元格；只从第3行开始写新增内容。</span></div>
+            <div><strong>姓名优先核对</strong><span>先用M列姓名去运营登记表全工作簿全部内容查找，命中后作为姓名条件命中。</span></div>
+            <div><strong>快递单号核对</strong><span>再用N列快递单号去运营登记表全工作簿全部内容查找；N列有合并时，Q/R列按同样行范围合并。</span></div>
+            <div><strong>结果规则</strong><span>姓名和快递单号都命中写已核实；只命中一个条件写待核实；两个条件都不命中写无信息。</span></div>
+            <div><strong>备注规则</strong><span>R列备注命中来源：姓名命中、快递单号命中；两个条件都命中时写姓名/快递单号都有。</span></div>
           </div>
         </section>
 
@@ -119,7 +116,8 @@
       </main>
     </div>
 
-    <script src="../vendor/xlsx-js-style.min.js?v=20260609-9"></script>
+    <script src="../vendor/xlsx.full.min.js?v=20260601-1"></script>
+    <script src="../vendor/jszip.min.js?v=20260610-1"></script>
     <script src="./shared-library.js?v=20260610-1"></script>
     <script src="./file-library.js?v=20260610-1"></script>
   </body>
