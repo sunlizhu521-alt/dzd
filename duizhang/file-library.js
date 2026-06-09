@@ -49,7 +49,6 @@ const HEADER_FONT = {
 const HEADER_ALIGNMENT = {
   horizontal: "center",
   vertical: "center",
-  wrapText: true,
 };
 const BODY_ALIGNMENT = {
   vertical: "center",
@@ -57,12 +56,10 @@ const BODY_ALIGNMENT = {
 const OUTPUT_ALIGNMENT = {
   horizontal: "center",
   vertical: "center",
-  wrapText: true,
 };
 const NOTE_ALIGNMENT = {
   horizontal: "left",
-  vertical: "top",
-  wrapText: true,
+  vertical: "center",
 };
 const BODY_FILL = {
   patternType: "solid",
@@ -615,7 +612,7 @@ function fillReconciliationSheet(sheet, operationSets, wdtEntries) {
   range.e.r = Math.max(range.e.r, maxRow);
   sheet["!ref"] = window.XLSX.utils.encode_range(range);
   applyGeneratedTableStyle(sheet, headerRow, range);
-  ensureOutputColumnWidths(sheet);
+  ensureOutputColumnWidths(sheet, range);
   return stats;
 }
 
@@ -1040,14 +1037,33 @@ function writeTextCell(sheet, rowIndex, columnIndex, value) {
   };
 }
 
-function ensureOutputColumnWidths(sheet) {
+function ensureOutputColumnWidths(sheet, range = null) {
   const columns = sheet["!cols"] || [];
-  columns[CHECK_COLUMN_INDEX] = { ...(columns[CHECK_COLUMN_INDEX] || {}), wch: 12 };
-  columns[REMARK_COLUMN_INDEX] = { ...(columns[REMARK_COLUMN_INDEX] || {}), wch: 10 };
-  columns[REVIEW_RESULT_COLUMN_INDEX] = { ...(columns[REVIEW_RESULT_COLUMN_INDEX] || {}), wch: 12 };
-  columns[REVIEW_TYPE_COLUMN_INDEX] = { ...(columns[REVIEW_TYPE_COLUMN_INDEX] || {}), wch: 24 };
-  columns[REVIEW_NOTE_COLUMN_INDEX] = { ...(columns[REVIEW_NOTE_COLUMN_INDEX] || {}), wch: 52 };
+  const startColumn = range?.s?.c ?? 0;
+  const endColumn = Math.max(range?.e?.c ?? OUTPUT_LAST_COLUMN_INDEX, OUTPUT_LAST_COLUMN_INDEX);
+  for (let columnIndex = startColumn; columnIndex <= endColumn; columnIndex += 1) {
+    const existing = columns[columnIndex] || {};
+    columns[columnIndex] = {
+      ...existing,
+      hidden: false,
+      level: 0,
+      collapsed: false,
+      wch: Math.max(Number(existing.wch) || 0, getGeneratedColumnWidth(columnIndex)),
+    };
+  }
+  columns[CHECK_COLUMN_INDEX].wch = Math.max(columns[CHECK_COLUMN_INDEX].wch || 0, 13);
+  columns[REMARK_COLUMN_INDEX].wch = Math.max(columns[REMARK_COLUMN_INDEX].wch || 0, 14);
+  columns[REVIEW_RESULT_COLUMN_INDEX].wch = Math.max(columns[REVIEW_RESULT_COLUMN_INDEX].wch || 0, 13);
+  columns[REVIEW_TYPE_COLUMN_INDEX].wch = Math.max(columns[REVIEW_TYPE_COLUMN_INDEX].wch || 0, 30);
+  columns[REVIEW_NOTE_COLUMN_INDEX].wch = Math.max(columns[REVIEW_NOTE_COLUMN_INDEX].wch || 0, 80);
   sheet["!cols"] = columns;
+}
+
+function getGeneratedColumnWidth(columnIndex) {
+  if (columnIndex === 1 || columnIndex === 2) return 16;
+  if (columnIndex === 3 || columnIndex === 4 || columnIndex === 5) return 18;
+  if (columnIndex === 6) return 22;
+  return 14;
 }
 
 function applyGeneratedTableStyle(sheet, headerRow, range) {
@@ -1063,13 +1079,12 @@ function applyGeneratedTableStyle(sheet, headerRow, range) {
   };
 
   const rows = sheet["!rows"] || [];
-  rows[headerRow] = { ...(rows[headerRow] || {}), hpt: 26 };
+  normalizeGeneratedRows(rows, styledRange, headerRow);
 
   for (let rowIndex = styledRange.s.r; rowIndex <= styledRange.e.r; rowIndex += 1) {
     const isHeader = rowIndex === headerRow;
     const shouldStyleRow = isHeader || rowHasAnyValue(sheet, rowIndex, styledRange.e.c);
     if (!shouldStyleRow) continue;
-    if (!isHeader) rows[rowIndex] = { ...(rows[rowIndex] || {}), hpt: 22 };
 
     for (let columnIndex = styledRange.s.c; columnIndex <= styledRange.e.c; columnIndex += 1) {
       const address = window.XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
@@ -1079,6 +1094,19 @@ function applyGeneratedTableStyle(sheet, headerRow, range) {
     }
   }
   sheet["!rows"] = rows;
+}
+
+function normalizeGeneratedRows(rows, styledRange, headerRow) {
+  for (let rowIndex = styledRange.s.r; rowIndex <= styledRange.e.r; rowIndex += 1) {
+    const row = { ...(rows[rowIndex] || {}) };
+    row.hidden = false;
+    row.level = 0;
+    row.collapsed = false;
+    delete row.hpx;
+    delete row.hpt;
+    if (rowIndex === headerRow) row.hpt = 24;
+    rows[rowIndex] = row;
+  }
 }
 
 function getCellBorder() {
