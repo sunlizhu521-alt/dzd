@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>供应商对账</title>
+    <style>
+      :root {
+        --ink: #1f2933;
+        --muted: #637083;
+        --line: #d9e2ec;
+        --panel: #ffffff;
+        --page: #f4f7fb;
+        --nav: #17223b;
+        --blue: #2f6fed;
+        --teal: #159a9c;
+        --shadow: 0 14px 40px rgba(31, 41, 51, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        background: var(--page);
+        font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+      }
+
+      .app-shell {
+        display: grid;
+        grid-template-columns: 240px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        padding: 26px 18px;
+        color: #fff;
+        background: var(--nav);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 34px;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        place-items: center;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 8px;
+        color: #fff;
+        background: linear-gradient(135deg, var(--teal), var(--blue));
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      .brand strong,
+      .brand span {
+        display: block;
+      }
+
+      .brand span {
+        margin-top: 3px;
+        color: #b7c4d6;
+        font-size: 12px;
+      }
+
+      .nav-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .nav-list a {
+        padding: 11px 12px;
+        border-radius: 6px;
+        color: #d9e2ec;
+        text-decoration: none;
+      }
+
+      .nav-list a.active,
+      .nav-list a:hover {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.12);
+      }
+
+      main {
+        padding: 26px;
+      }
+
+      .topbar {
+        margin-bottom: 22px;
+      }
+
+      .eyebrow {
+        margin: 0 0 6px;
+        color: var(--blue);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 30px;
+      }
+
+      .source-note {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .nav-card-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(180px, 1fr));
+        gap: 14px;
+      }
+
+      .nav-card {
+        display: grid;
+        gap: 9px;
+        min-height: 132px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--ink);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        text-decoration: none;
+      }
+
+      .nav-card:hover {
+        border-color: var(--blue);
+      }
+
+      .nav-card span {
+        color: var(--blue);
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .nav-card strong {
+        font-size: 18px;
+      }
+
+      .nav-card small {
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      @media (max-width: 1180px) {
+        .nav-card-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 760px) {
+        .app-shell {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          position: static;
+          height: auto;
+        }
+
+        main {
+          padding: 18px;
+        }
+
+        .nav-card-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="供应商对账">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">GY</span>
+          <div>
+            <strong>供应商对账</strong>
+            <span>对账工作台</span>
+          </div>
+        </div>
+        <nav class="nav-list">
+          <a class="active" href="./index.html">供应商对账</a>
+          <a href="./yile-duizhang/index.html">易乐对账</a>
+        </nav>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <p class="eyebrow">Navigation</p>
+          <h1>供应商对账</h1>
+          <small class="source-note">每个供应商页面使用独立目录和独立对账逻辑。</small>
+        </header>
+
+        <section class="nav-card-grid" aria-label="供应商对账导航">
+          <a class="nav-card" href="./yile-duizhang/index.html">
+            <span>Supplier</span>
+            <strong>易乐对账</strong>
+            <small>复制原易乐对账页面的内容、框架和对账逻辑，使用独立文件库缓存。</small>
+          </a>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
