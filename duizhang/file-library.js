@@ -1081,19 +1081,23 @@ function applyGeneratedTableStyle(sheet, headerRow, range) {
   const rows = sheet["!rows"] || [];
   normalizeGeneratedRows(rows, styledRange, headerRow);
 
-  for (let rowIndex = styledRange.s.r; rowIndex <= styledRange.e.r; rowIndex += 1) {
-    const isHeader = rowIndex === headerRow;
-    const shouldStyleRow = isHeader || rowHasAnyValue(sheet, rowIndex, styledRange.e.c);
-    if (!shouldStyleRow) continue;
-
-    for (let columnIndex = styledRange.s.c; columnIndex <= styledRange.e.c; columnIndex += 1) {
-      const address = window.XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
-      const cell = sheet[address] || { t: "s", v: "" };
-      cell.s = getGeneratedCellStyle(cell, rowIndex, columnIndex, headerRow);
+  Object.entries(sheet)
+    .filter(([address, cell]) => !address.startsWith("!") && isCellInRange(address, styledRange) && cellHasDisplayValue(cell))
+    .forEach(([address, cell]) => {
+      const position = window.XLSX.utils.decode_cell(address);
+      cell.s = getGeneratedCellStyle(cell, position.r, position.c, headerRow);
       sheet[address] = cell;
-    }
-  }
+    });
   sheet["!rows"] = rows;
+}
+
+function isCellInRange(address, range) {
+  const position = window.XLSX.utils.decode_cell(address);
+  return position.r >= range.s.r && position.r <= range.e.r && position.c >= range.s.c && position.c <= range.e.c;
+}
+
+function cellHasDisplayValue(cell) {
+  return getCellText(cell) !== "";
 }
 
 function normalizeGeneratedRows(rows, styledRange, headerRow) {
